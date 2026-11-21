@@ -91,6 +91,8 @@ local function open_file(i, path, action)
         open_dvd(path)
     elseif action == 'append' then
         mp.commandv('loadfile', path, 'append')
+    elseif action == 'append-playlist' then
+        mp_commandv('loadlist', path, 'append-play')
     else
         mp.commandv('loadfile', path, i > 1 and 'append-play' or 'replace')
     end
@@ -159,6 +161,8 @@ mp.register_script_message('open', function(action)
         append(filters, 'Video Files', 'video_exts')
         append(filters, 'Audio Files', 'audio_exts')
         append(filters, 'Image Files', 'image_exts')
+        append(filters, 'Playlist Files', 'playlist_exts')
+    elseif open_action == 'append-playlist' then
         append(filters, 'Playlist Files', 'playlist_exts')
     elseif open_action == 'add-sub' then
         append(filters, 'Subtitle Files', 'subtitle_exts')

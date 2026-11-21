@@ -86,6 +86,12 @@ local language = {
 opt.read_options(user_opts, 'modernf', function(list) update_options(list) end)
 -- apply lang opts
 local texts = language[user_opts.language]
+local playlist_icon = '\xEF\x8E\xAB'
+
+local function open_playlist()
+    mp.commandv('script-message-to', 'file_browser', 'playlist-library')
+end
+
 local osc_param = { -- calculated by osc_init()
     playresy = 0,                           -- canvas size Y
     playresx = 0,                           -- canvas size X
@@ -137,6 +143,7 @@ local state = {
     idle = false,
     enabled = true,
     input_enabled = true,
+    idle_playlist_enabled = false,
     showhide_enabled = false,
     dmx_cache = 0,
     border = true,
@@ -193,6 +200,16 @@ function get_virt_mouse_pos()
     else
         return -1, -1
     end
+end
+
+local function enable_idle_playlist(enabled)
+    if state.idle_playlist_enabled == enabled then return end
+    if enabled then
+        mp.enable_key_bindings('idle-playlist')
+    else
+        mp.disable_key_bindings('idle-playlist')
+    end
+    state.idle_playlist_enabled = enabled
 end
 
 function set_virt_mouse_area(x0, y0, x1, y1, name)
@@ -740,13 +757,13 @@ function render_elements(master_ass)
             if not (element.tooltipF == nil) and element.enabled then
                 if mouse_hit(element) then
                     local tooltiplabel = element.tooltipF
-                    local an = 1
+                    local an = element.tooltip_an or 1
                     local ty = element.hitbox.y1
                     local tx = get_virt_mouse_pos()
                     
                     if ty < osc_param.playresy / 2 then
                         ty = element.hitbox.y2
-                        an = 7
+                        an = an + 6
                     end
 
                     -- tooltip label
@@ -1119,12 +1136,12 @@ layouts["reduced"] = function ()
     lo = new_element('volumebarbg', 'box')
     lo.visible = (osc_param.playresx >= 750) and user_opts.volumecontrol
     lo = add_layout('volumebarbg')
-    lo.geometry = {x = osc_geo.w - 257, y = refY - 40, an = 4, w = 80, h = 2}
+    lo.geometry = {x = osc_geo.w - 297, y = refY - 40, an = 4, w = 80, h = 2}
     lo.layer = 13
     lo.style = osc_styles.VolumebarBg
     
     lo = add_layout('volumebar')
-    lo.geometry = {x = osc_geo.w - 257, y = refY - 40, an = 4, w = 80, h = 8}
+    lo.geometry = {x = osc_geo.w - 297, y = refY - 40, an = 4, w = 80, h = 8}
     lo.style = osc_styles.VolumebarFg
     lo.slider.gap = 3
     lo.slider.tooltip_style = osc_styles.Tooltip
@@ -1165,24 +1182,28 @@ layouts["reduced"] = function ()
     lo.visible = (osc_param.playresx >= 600)
 
     lo = add_layout('vol_ctrl')
-    lo.geometry = {x = osc_geo.w - 277, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 317, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 650)
 
     lo = add_layout('tog_fs')
-    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 82, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl2
     lo.visible = (osc_param.playresx >= 500)
     
     lo = add_layout('ontop')
-    lo.geometry = {x = osc_geo.w - 137, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 177, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 600)
 
     lo = add_layout('tog_info')
-    lo.geometry = {x = osc_geo.w - 87, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 127, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 600)
+
+    lo = add_layout('open_playlist')
+    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 32, h = 32}
+    lo.style = osc_styles.Ctrl2
     
     geo = { x = 25, y = refY - 132, an = 1, w = osc_geo.w - 50, h = 48 }
     lo = add_layout('title')
@@ -1261,13 +1282,13 @@ layouts["original"] = function ()
     lo = new_element('volumebarbg', 'box')
     lo.visible = (osc_param.playresx >= 750) and user_opts.volumecontrol
     lo = add_layout('volumebarbg')
-    lo.geometry = {x = osc_geo.w - 317, y = refY - 40, an = 4, w = 80, h = 2}
+    lo.geometry = {x = osc_geo.w - 357, y = refY - 40, an = 4, w = 80, h = 2}
     lo.layer = 13
     lo.style = osc_styles.VolumebarBg
 
     
     lo = add_layout('volumebar')
-    lo.geometry = {x = osc_geo.w - 317, y = refY - 40, an = 4, w = 80, h = 8}
+    lo.geometry = {x = osc_geo.w - 357, y = refY - 40, an = 4, w = 80, h = 8}
     lo.style = osc_styles.VolumebarFg
     lo.slider.gap = 3
     lo.slider.tooltip_style = osc_styles.Tooltip
@@ -1307,29 +1328,33 @@ layouts["original"] = function ()
     lo.style = osc_styles.Time    
 
     lo = add_layout('cy_audio')
-    lo.geometry = {x = osc_geo.w - 187, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 227, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 540)
     
     lo = add_layout('cy_sub')
-    lo.geometry = {x = osc_geo.w - 137, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 177, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 600)
 
     lo = add_layout('vol_ctrl')
-    lo.geometry = {x = osc_geo.w - 337, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 377, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 650)
 
     lo = add_layout('tog_fs')
-    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 82, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl2
     lo.visible = (osc_param.playresx >= 540)
 
     lo = add_layout('tog_info')
-    lo.geometry = {x = osc_geo.w - 87, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 127, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 600)
+
+    lo = add_layout('open_playlist')
+    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 32, h = 32}
+    lo.style = osc_styles.Ctrl2
     
     geo = { x = 25, y = refY - 132, an = 1, w = osc_geo.w - 50, h = 48 }
     lo = add_layout('title')
@@ -1492,14 +1517,18 @@ layouts["mid"] = function ()
     lo.visible = (osc_param.playresx >= 650)
 
     lo = add_layout('tog_fs')
-    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 82, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 540)
 
     lo = add_layout('tog_info')
-    lo.geometry = {x = osc_geo.w - 87, y = refY - 40, an = 5, w = 24, h = 24}
+    lo.geometry = {x = osc_geo.w - 127, y = refY - 40, an = 5, w = 24, h = 24}
     lo.style = osc_styles.Ctrl3
     lo.visible = (osc_param.playresx >= 600)
+
+    lo = add_layout('open_playlist')
+    lo.geometry = {x = osc_geo.w - 37, y = refY - 40, an = 5, w = 32, h = 32}
+    lo.style = osc_styles.Ctrl2
     
     geo = { x = 25, y = refY - 132, an = 1, w = osc_geo.w - 50, h = 48 }
     lo = add_layout('title')
@@ -1553,6 +1582,13 @@ function osc_init()
     local ne
 
     -- playlist buttons
+    ne = new_element('open_playlist', 'button')
+    ne.content = playlist_icon
+    ne.tooltipF = texts.playlist
+    ne.tooltip_style = osc_styles.Tooltip
+    ne.tooltip_an = 3
+    ne.eventresponder['mbtn_left_up'] = open_playlist
+
     -- prev
     ne = new_element('pl_prev', 'button')
 
@@ -2328,14 +2364,15 @@ function process_event(source, what)
 end
 
 function show_logo()
-    local osd_w, osd_h, osd_aspect = mp.get_osd_size()
-	
-    osd_w, osd_h = 1024*osd_aspect, 1024
+    local screen_w, screen_h, osd_aspect = mp.get_osd_size()
+    if screen_w <= 0 or screen_h <= 0 or osd_aspect <= 0 then
+        enable_idle_playlist(false)
+        return
+    end
+
+    local osd_w, osd_h = 1024 * osd_aspect, 1024
     local logo_x, logo_y = osd_w/2, osd_h/2-20
     local ass = assdraw.ass_new()
-     if osd_aspect == 0 then
-            return
-        end
     ass:new_event()
     ass:pos(logo_x, logo_y)
     ass:append('{\\1c&HE5E5E5&\\3c&H0&\\3a&H60&\\blur1\\bord0.5}')
@@ -2377,6 +2414,24 @@ function show_logo()
     ass:pos(logo_x, logo_y+140)
     ass:an(8)
     ass:append(texts.welcome)
+
+    local x1, y1 = osd_w - 32, osd_h - 28
+    local x0, y0 = math.max(16, x1 - 190), y1 - 66
+    ass:new_event()
+    ass:append('{\\1c&H2A2A2A&\\bord0\\shad0}')
+    ass:draw_start()
+    ass:round_rect_cw(x0, y0, x1, y1, 10)
+    ass:draw_stop()
+
+    ass:new_event()
+    ass:pos((x0 + x1) / 2, (y0 + y1) / 2)
+    ass:an(5)
+    ass:append('{\\1c&HFFFFFF&\\fs30\\bord0\\shad0\\fnmaterial-design-iconic-font}')
+    ass:append(playlist_icon .. '{\\r\\fs28\\bord0\\shad0}  ' .. texts.playlist)
+
+    mp.set_mouse_area(x0 * screen_w / osd_w, y0 * screen_h / osd_h,
+                      x1 * screen_w / osd_w, y1 * screen_h / osd_h, 'idle-playlist')
+    enable_idle_playlist(true)
     set_osd(osd_w, osd_h, ass.text, -1000)
 end
 
@@ -2384,7 +2439,10 @@ end
 function tick()
     if (not state.enabled) then return end
 
-    if (state.idle) and user_opts.idlescreen then
+    local show_idle_logo = state.idle and user_opts.idlescreen
+    if not show_idle_logo then enable_idle_playlist(false) end
+
+    if show_idle_logo then
         show_logo()
         -- render idle message
         msg.trace('idle message')
@@ -2393,6 +2451,10 @@ function tick()
             mp.disable_key_bindings('showhide')
             mp.disable_key_bindings('showhide_wc')
             state.showhide_enabled = false
+        end
+        if state.input_enabled then
+            mp.disable_key_bindings('input')
+            state.input_enabled = false
         end
 
 
@@ -2428,6 +2490,7 @@ function enable_osc(enable)
     if enable then
         do_enable_keybindings()
     else
+        enable_idle_playlist(false)
         hide_osc() -- acts immediately when state.enabled == false
         if state.showhide_enabled then
             mp.disable_key_bindings('showhide')
@@ -2548,6 +2611,8 @@ mp.set_key_bindings({
                             function(e) process_event('mbtn_left', 'down')  end},
 }, 'window-controls', 'force')
 mp.enable_key_bindings('window-controls')
+
+mp.set_key_bindings({{'mbtn_left', open_playlist}}, 'idle-playlist', 'force')
 
 function get_hidetimeout()
     if user_opts.visibility == 'always' then
