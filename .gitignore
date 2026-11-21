@@ -18,6 +18,8 @@ log/
 shaders/
 dist/
 scripts/bilibiliAssert/Danmu2Ass.exe
+/script-opts/webdav-libraries.json
+/script-opts/webdav-libraries.json.tmp
 
 # IntelliJ 相关
 *.iml

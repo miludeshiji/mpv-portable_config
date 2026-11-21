@@ -136,14 +136,20 @@ local function load_addons(directory)
     --we want to store the indexes of the parsers
     for i = #g.parsers, 1, -1 do g.parsers[ g.parsers[i] ].index = i end
 
-    --we want to run the setup functions for each addon
-    for index, parser in ipairs(g.parsers) do
-        if parser.setup then
-            local success = xpcall(function() parser:setup() end, fb_utils.traceback)
-            if not success then
-                msg.error("parser", parser:get_id(), "threw an error in the setup method - removing from list of parsers")
-                table.remove(g.parsers, index)
-            end
+    local index = 1
+    while index <= #g.parsers do
+        local parser = g.parsers[index]
+        if not parser.setup or xpcall(function() parser:setup() end, fb_utils.traceback) then
+            index = index + 1
+        else
+            local id = parser:get_id()
+            msg.error("parser", id, "threw an error in the setup method - removing from list of parsers")
+            table.remove(g.parsers, index)
+            g.parsers[id] = nil
+            g.parsers[parser] = nil
+
+            -- The next parser now occupies this index and still needs setup.
+            for i = index, #g.parsers do g.parsers[g.parsers[i]].index = i end
         end
     end
 end

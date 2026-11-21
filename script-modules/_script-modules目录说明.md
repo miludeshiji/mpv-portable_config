@@ -11,3 +11,5 @@
 选择「添加 WebDAV 库」并填写目录地址。支持匿名访问和 Basic 认证，有凭据时建议使用 HTTPS。使用相同地址再次保存会更新库名和凭据。库配置保存在本机的 `script-opts/webdav-libraries.json`，其中的认证信息可以还原。
 
 在文件浏览器中用方向键浏览，按 Enter 进入目录或播放文件，按 Shift+Enter 把选中的媒体文件加入当前队列。
+
+播放 WebDAV 影片时，mpv 按 `sub-auto` 和 `sub-auto-exts` 查找同目录的外挂字幕。设为 `fuzzy` 时，`影片.mkv` 可匹配同目录的 `影片.srt`、`影片.zh-Hans.ass` 等字幕。

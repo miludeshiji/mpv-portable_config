@@ -47,11 +47,93 @@ local function find_library(url)
     return match
 end
 
-local function authenticate_playback()
-    local library = find_library(mp.get_property("path"))
-    if not library then return end
+local function request_directory(directory, playback_only, callback)
+    return mp.command_native_async({
+        name = "subprocess",
+        args = {python, "-I", "-B", list_script, config_path, directory},
+        playback_only = playback_only,
+        capture_stdout = true,
+        capture_stderr = true,
+    }, function(success, result)
+        local reply
+        if success and result.status == 0 then
+            reply = utils.parse_json(result.stdout)
+        elseif not (result and result.killed_by_us) then
+            msg.error("WebDAV 目录查询进程失败", result and (result.stderr or result.error_string) or "")
+        end
+        callback(reply and reply.entries, reply and reply.error or "WebDAV 目录查询失败")
+    end)
+end
 
-    mp.set_property_bool("file-local-options/ytdl", false)
+local function decode_url_component(value)
+    return (value:gsub("%%(%x%x)", function(byte) return string.char(tonumber(byte, 16)) end))
+end
+
+local subtitle_flags = { default = true, forced = true, sdh = true, hi = true, cc = true }
+
+local function subtitle_language(stem)
+    while true do
+        local base, tag = stem:match("^(.-)%s*%[([^%[%]]+)%]$")
+        if not tag then base, tag = stem:match("^(.-)%s*%(([^()]+)%)$") end
+        if not tag then base, tag = stem:match("^(.*)%.([^.]+)$") end
+        if not tag then return end
+        if not subtitle_flags[tag] then
+            if tag:match("^%a%a%a?$") or tag:match("^%a%a%a?%-%a[%a%d%-]*$") then
+                return base, tag
+            end
+            return
+        end
+        stem = base
+    end
+end
+
+local function matching_subtitles(entries, movie_name, mode)
+    local movie = movie_name:gsub("%.[^.]+$", ""):lower()
+    if movie == "" then return {} end
+
+    local extensions, candidates, indexes = {}, {}, {}
+    for _, ext in ipairs(mp.get_property_native("options/sub-auto-exts", {})) do
+        extensions[ext:lower()] = true
+    end
+    local languages = mp.get_property_native("options/slang", {})
+    for _, item in ipairs(entries) do
+        local ext = fb.get_extension(item.name, "")
+        if item.type == "file" and extensions[ext] then
+            local stem = item.name:gsub("%.[^.]+$", ""):lower()
+            local base, lang = subtitle_language(stem)
+            local exact = stem == movie or base == movie
+            if exact or mode == "all" or (mode == "fuzzy" and stem:find(movie, 1, true)) then
+                local priority = #languages + 1
+                for index, preferred in ipairs(languages) do
+                    preferred = preferred:lower()
+                    if lang and (lang == preferred or lang:sub(1, #preferred + 1) == preferred .. "-") then
+                        priority = index
+                        break
+                    end
+                end
+                candidates[#candidates + 1] = {
+                    path = item.path, stem = stem, extension = ext, priority = priority, exact = exact,
+                }
+                if ext == "idx" then indexes[stem] = true end
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        if a.priority ~= b.priority then return a.priority < b.priority end
+        if a.exact ~= b.exact then return a.exact end
+        return a.path < b.path
+    end)
+
+    local paths = {}
+    for _, subtitle in ipairs(candidates) do
+        if subtitle.extension ~= "sub" or not indexes[subtitle.stem] then
+            paths[#paths + 1] = subtitle.path
+        end
+    end
+    return paths
+end
+
+local function set_playback_authentication(library)
     if type(library.authorization) ~= "string" or not library.authorization:match("^Basic [%w+/=]+$") then
         return
     end
@@ -64,6 +146,38 @@ local function authenticate_playback()
     end
     headers[#headers + 1] = "Authorization: " .. library.authorization
     mp.set_property_native("file-local-options/http-header-fields", headers)
+end
+
+local function prepare_playback(hook)
+    local url = mp.get_property("path")
+    local library = find_library(url)
+    if not library then return end
+
+    mp.set_property_bool("file-local-options/ytdl", false)
+    set_playback_authentication(library)
+
+    local mode = mp.get_property("options/sub-auto", "no")
+    if mode == "no" or not mp.get_property_native("options/autoload-files", true) then return end
+
+    local directory, filename = utils.split_path((url:gsub("[?#].*$", "")))
+    if filename == "" or not find_library(directory) then return end
+
+    hook:defer()
+    request_directory(directory, true, function(entries, err)
+        if entries then
+            local paths = mp.get_property_native("file-local-options/sub-files", {})
+            local seen = {}
+            for _, path in ipairs(paths) do seen[path] = true end
+            local previous_count = #paths
+            for _, path in ipairs(matching_subtitles(entries, decode_url_component(filename), mode)) do
+                if not seen[path] then paths[#paths + 1] = path end
+            end
+            if #paths > previous_count then mp.set_property_native("file-local-options/sub-files", paths) end
+        else
+            msg.verbose("WebDAV 自动查找字幕失败", err)
+        end
+        hook:cont()
+    end)
 end
 
 local function add_library()
@@ -99,7 +213,7 @@ local function playlist_title(entry)
     local _, name = utils.split_path(path)
     if name == "" then return path end
     if path:match("^https?://") then
-        name = name:gsub("%%(%x%x)", function(byte) return string.char(tonumber(byte, 16)) end)
+        name = decode_url_component(name)
     end
     return name
 end
@@ -158,7 +272,7 @@ local webdav = {
 
 function webdav:setup()
     self:register_root_item({ name = libraries_directory, path = libraries_directory, label = "WebDAV" })
-    mp.add_hook("on_load", 5, authenticate_playback)
+    mp.add_hook("on_load", 5, prepare_playback)
     mp.register_script_message("playlist-library", show_playlist)
 end
 
@@ -178,23 +292,9 @@ function webdav:parse(directory, parse_state)
         }
     end
 
-    mp.command_native_async({
-        name = "subprocess",
-        args = {python, "-I", "-B", list_script, config_path, directory},
-        playback_only = false,
-        capture_stdout = true,
-        capture_stderr = true,
-    }, fb.coroutine.callback())
-    local success, result = parse_state:yield()
-    local reply
-    if success and result.status == 0 then
-        reply = utils.parse_json(result.stdout)
-    else
-        msg.error("WebDAV 目录查询进程失败", result and (result.stderr or result.error_string) or "")
-    end
-    if reply and reply.entries then return reply.entries end
-
-    local err = reply and reply.error or "WebDAV 目录查询失败"
+    request_directory(directory, false, fb.coroutine.callback())
+    local entries, err = parse_state:yield()
+    if entries then return entries end
     if parse_state.source == "browser" then mp.osd_message(err, 4) end
     return {}, { empty_text = err }
 end
